@@ -52,7 +52,7 @@ const Dashboard: React.FC = () => {
         if (projectResponse.data.success) {
           setProjects(projectResponse.data.projects);
         } else {
-          console.error('Failed to load projects:', projectResponse.data.message);
+          setError(`Failed to load projects: ${projectResponse.data.message}`);
         }
 
         // For now, still using mock notifications
@@ -94,6 +94,7 @@ const Dashboard: React.FC = () => {
       navigate('/login');
     } catch (error) {
       console.error('Logout error:', error);
+      setError('Logout failed. Please try again.');
     }
   };
 

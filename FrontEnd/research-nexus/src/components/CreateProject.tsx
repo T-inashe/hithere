@@ -42,15 +42,25 @@ function CreateProject() {
     'Other'
   ];
 
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData({
-      ...formData,
-      [name]: type === 'checkbox' ? checked : value
-    });
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    const target = e.target;
+  
+    const value =
+      target instanceof HTMLInputElement && target.type === 'checkbox'
+        ? target.checked
+        : target.value;
+  
+    const name = target.name;
+  
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   };
-
-  const handleSubmit = async (e) => {
+   
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
     
