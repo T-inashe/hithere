@@ -1,89 +1,121 @@
-/*import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import EditProject from '../components/EditProject';
-import { BrowserRouter } from 'react-router-dom';
-import axios from 'axios';
 import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import EditProject from '../components/EditProject';
+import { BrowserRouter, MemoryRouter, Route, Routes } from 'react-router-dom';
+import axios from 'axios';
 
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
-const mockProject = {
+const mockNavigate = jest.fn();
+jest.mock('react-router-dom', () => ({
+  ...jest.requireActual('react-router-dom'),
+  useNavigate: () => mockNavigate,
+  useParams: () => ({ id: '123' }),
+}));
+
+const sampleProject = {
   success: true,
   project: {
-    title: 'AI in Healthcare',
-    description: 'Researching AI applications in diagnostics.',
-    research_goals: 'Improve diagnostic accuracy using ML.',
-    research_area: 'Artificial Intelligence',
-    start_date: '2025-05-01',
+    title: 'Edited Project',
+    description: 'Updated description',
+    research_goals: 'Updated goals',
+    research_area: 'Machine Learning',
+    start_date: '2025-01-01',
     end_date: '2025-12-31',
     funding_available: true,
-    funding_amount: '5000',
+    funding_amount: '10000',
     collaborators_needed: true,
-    collaborator_roles: 'ML Engineer, Data Scientist',
-    institution: 'MIT',
-    contact_email: 'ai@mit.edu'
-  }
+    collaborator_roles: 'ML Engineer',
+    institution: 'Tech Uni',
+    contact_email: 'edit@tech.edu',
+  },
 };
 
-const renderWithRouter = () => {
-  window.history.pushState({}, 'Edit project', '/projects/123/edit');
-  return render(
-    <BrowserRouter>
-      <EditProject />
-    </BrowserRouter>
-  );
-};
-
-describe('EditProject Component', () => {
+describe('EditProject', () => {
   beforeEach(() => {
-    mockedAxios.get.mockResolvedValue({ data: mockProject });
+    jest.clearAllMocks();
   });
 
-  it('renders loading spinner initially', async () => {
-    renderWithRouter();
-    expect(screen.getByText(/loading project data/i)).toBeInTheDocument();
-  });
+  test('displays loading spinner initially', async () => {
+    mockedAxios.get.mockResolvedValueOnce({ data: sampleProject });
 
-  it('renders form with loaded project data', async () => {
-    renderWithRouter();
+    render(
+      <MemoryRouter initialEntries={['/projects/123/edit']}>
+        <Routes>
+          <Route path="/projects/:id/edit" element={<EditProject />} />
+        </Routes>
+      </MemoryRouter>
+    );
 
+    expect(screen.getByText(/Loading project data.../i)).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByDisplayValue(/AI in Healthcare/)).toBeInTheDocument();
-    });
-
-    expect(screen.getByLabelText(/Project Title/i)).toHaveValue('AI in Healthcare');
-    expect(screen.getByLabelText(/Funding Available/i)).toBeChecked();
-    expect(screen.getByDisplayValue('5000')).toBeInTheDocument();
-  });
-
-  it('shows funding amount input when fundingAvailable is checked', async () => {
-    renderWithRouter();
-    await waitFor(() => screen.getByLabelText(/Funding Amount/i));
-    expect(screen.getByDisplayValue('5000')).toBeInTheDocument();
-  });
-
-  it('submits updated form data', async () => {
-    mockedAxios.put.mockResolvedValue({ data: { success: true } });
-    
-    renderWithRouter();
-    await waitFor(() => screen.getByLabelText(/Project Title/i));
-    
-    fireEvent.change(screen.getByLabelText(/Project Title/i), { target: { value: 'Updated Title' } });
-    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
-
-    await waitFor(() => {
-      expect(mockedAxios.put).toHaveBeenCalledWith(
-        'http://localhost:8081/api/projects/123/update',
-        expect.objectContaining({ title: 'Updated Title' }),
-        expect.any(Object)
-      );
+      expect(screen.getByDisplayValue(/Edited Project/i)).toBeInTheDocument();
     });
   });
 
-  it('displays error if fetch fails', async () => {
-    mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
-    renderWithRouter();
-    await waitFor(() => screen.getByText(/server error/i));
+  test('loads form fields with project data', async () => {
+    mockedAxios.get.mockResolvedValueOnce({ data: sampleProject });
+
+    render(
+      <MemoryRouter initialEntries={['/projects/123/edit']}>
+        <Routes>
+          <Route path="/projects/:id/edit" element={<EditProject />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Edited Project')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Updated description')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Updated goals')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('10000')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('ML Engineer')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('edit@tech.edu')).toBeInTheDocument();
+    });
+  });
+
+  test('submits updated form and navigates', async () => {
+    mockedAxios.get.mockResolvedValueOnce({ data: sampleProject });
+    mockedAxios.put.mockResolvedValueOnce({ data: { success: true } });
+
+    render(
+      <MemoryRouter initialEntries={['/projects/123/edit']}>
+        <Routes>
+          <Route path="/projects/:id/edit" element={<EditProject />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => screen.getByDisplayValue('Edited Project'));
+
+    fireEvent.change(screen.getByLabelText(/Project Title/i), { target: { value: 'Final Project Title' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }));
+
+    await waitFor(() => {
+      expect(mockedAxios.put).toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalledWith('/projects/123');
+    });
+  });
+
+  test('displays error if project update fails', async () => {
+    mockedAxios.get.mockResolvedValueOnce({ data: sampleProject });
+    mockedAxios.put.mockResolvedValueOnce({ data: { success: false, message: 'Update failed' } });
+
+    render(
+      <MemoryRouter initialEntries={['/projects/123/edit']}>
+        <Routes>
+          <Route path="/projects/:id/edit" element={<EditProject />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => screen.getByDisplayValue('Edited Project'));
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Update failed/i)).toBeInTheDocument();
+    });
   });
 });
-*/

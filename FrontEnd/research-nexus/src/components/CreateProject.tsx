@@ -273,6 +273,7 @@ function CreateProject() {
 
                 <Form.Group className="mb-3">
                   <Form.Check
+                    id="fundingAvailable"
                     type="checkbox"
                     label="Funding Available"
                     name="fundingAvailable"
@@ -304,6 +305,7 @@ function CreateProject() {
 
                 <Form.Group className="mb-3">
                   <Form.Check
+                    id="collaboratorsNeeded"
                     type="checkbox"
                     label="Seeking Collaborators"
                     name="collaboratorsNeeded"
