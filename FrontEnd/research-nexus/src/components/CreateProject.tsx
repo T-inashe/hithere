@@ -106,7 +106,7 @@ function CreateProject() {
 
     try {
       const response = await axios.post<CreateProjectResponse>(
-        'http://localhost:8081/api/projects/create',
+        `${process.env.BACKEND_URL}/api/projects/create`,  // update API URL
         sanitizedData,
         { withCredentials: true }
       );

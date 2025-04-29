@@ -1,7 +1,6 @@
-import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import EditProject from '../components/EditProject';
-import { BrowserRouter, MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import axios from 'axios';
 
 jest.mock('axios');

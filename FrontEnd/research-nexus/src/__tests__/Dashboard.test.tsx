@@ -1,4 +1,3 @@
-import React from 'react';
 import Dashboard from "../components/dashboard/Dashboard";
 import AuthContext from '../context/AuthContext';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';

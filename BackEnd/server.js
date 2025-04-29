@@ -1,150 +1,112 @@
+// server.js (MongoDB version)
 const express = require("express");
-const mysql = require("mysql");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const passport = require("passport");
+const mongoose = require("mongoose");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
-require('dotenv').config();
+require("dotenv").config();
 
-// Constants
+// Models
+const User = require("./models/User");
+const SchoolInfo = require("./models/SchoolInfo");
+const Project = require("./models/Project");
+
 const SALT_ROUNDS = 10;
-const PORT = 8081;
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 1000; // 24 hours in milliseconds
+const PORT = process.env.PORT || 8081;
+const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000;
 
-// Google OAuth configuration
-const clientID = process.env.GOOGLE_CLIENT_ID;
-const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_CALLBACK_URL = "http://localhost:8081/auth/google/callback";
+// Connect to MongoDB Atlas
+mongoose
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("Connected to MongoDB Atlas"))
+  .catch((err) => console.error("MongoDB connection error:", err));
 
-// Database configuration
-const dbConfig = {
-  host: "localhost",
-  user: "root",
-  password: "",
-  database: "fundme",
-};
-
-// Express app setup
 const app = express();
 
-// Middleware configuration
-app.use(cors({
-  origin: 'https://T-inashe.github.io',
-  methods: ["GET", "POST", "DELETE"],
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: "https://T-inashe.github.io",
+    methods: ["GET", "POST", "DELETE"],
+    credentials: true,
+  })
+);
 app.use(cookieParser());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json());
-app.use(session({
-  key: "email",
-  secret: "changetosecureaftertesting",
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    expires: new Date(Date.now() + COOKIE_MAX_AGE),
-    maxAge: COOKIE_MAX_AGE,
-  }
-}));
-
-// Initialize passport
+app.use(
+  session({
+    key: "email",
+    secret: "changetosecureaftertesting",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      expires: new Date(Date.now() + COOKIE_MAX_AGE),
+      maxAge: COOKIE_MAX_AGE,
+    },
+  })
+);
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Database connection
-const db = mysql.createConnection(dbConfig);
-
 // Helper functions
-const hashPassword = async (password) => {
-  return bcrypt.hash(password, SALT_ROUNDS);
-};
+const hashPassword = async (password) => bcrypt.hash(password, SALT_ROUNDS);
+const comparePassword = async (password, hash) => bcrypt.compare(password, hash);
 
-const comparePassword = async (password, hash) => {
-  return bcrypt.compare(password, hash);
-};
-
-// Passport configuration
 passport.serializeUser((user, done) => {
   done(null, user.email);
 });
 
-passport.deserializeUser((email, done) => {
-  db.query(
-    "SELECT * FROM personalInfo WHERE email = ?",
-    [email],
-    (err, users) => {
-      if (err) return done(err);
-      done(null, users[0]);
-    }
-  );
+passport.deserializeUser(async (email, done) => {
+  try {
+    const user = await User.findOne({ email });
+    done(null, user);
+  } catch (err) {
+    done(err);
+  }
 });
 
-// Google Strategy
-passport.use(new GoogleStrategy({
-    clientID: GOOGLE_CLIENT_ID,
-    clientSecret: GOOGLE_CLIENT_SECRET,
-    callbackURL: GOOGLE_CALLBACK_URL,
-    userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
-  },
-  async (accessToken, refreshToken, profile, done) => {
-    try {
-      const email = profile.emails[0].value;
-      
-      // Check if user exists
-      db.query(
-        "SELECT * FROM personalInfo WHERE email = ?",
-        [email],
-        async (err, users) => {
-          if (err) return done(err);
-          
-          if (users.length === 0) {
-            // Create new user with Google data
-            const name = profile.name.givenName;
-            const surname = profile.name.familyName;
-            
-            // Insert into personalInfo with minimal data
-            db.query(
-              "INSERT INTO personalInfo (email, name, surname, password, oauth_provider) VALUES (?, ?, ?, ?, ?)",
-              [email, name, surname, 'google-oauth-user', 'google'],
-              (err) => {
-                if (err) return done(err);
-                
-                // Insert into schoolInfo
-                db.query(
-                  "INSERT INTO schoolInfo (email) VALUE (?)",
-                  [email],
-                  (err) => {
-                    if (err) return done(err);
-                    
-                    // Get the newly created user
-                    db.query(
-                      "SELECT * FROM personalInfo WHERE email = ?",
-                      [email],
-                      (err, newUsers) => {
-                        if (err) return done(err);
-                        return done(null, newUsers[0]);
-                      }
-                    );
-                  }
-                );
-              }
-            );
-          } else {
-            // Existing user, return the user
-            return done(null, users[0]);
-          }
-        }
-      );
-    } catch (error) {
-      return done(error);
-    }
-  }
-));
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: "http://localhost:8081/auth/google/callback",
+      userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      try {
+        const email = profile.emails[0].value;
+        let user = await User.findOne({ email });
 
-// Authentication middleware
+        if (!user) {
+          const role = req.session?.oauthRole || 'Researcher';
+
+          user = await User.create({
+            email,
+            name: profile.name.givenName,
+            surname: profile.name.familyName,
+            password: "google-oauth-user",
+            oauth_provider: "google",
+            role,
+          });
+          await SchoolInfo.create({ email });
+        }
+
+        return done(null, user);
+      } catch (error) {
+        return done(error);
+      }
+    }
+  )
+);
+
 const checkAuth = (req, res, next) => {
   if (req.session.user || req.isAuthenticated()) {
     next();
@@ -153,302 +115,145 @@ const checkAuth = (req, res, next) => {
   }
 };
 
-// Google OAuth routes
-app.get('/auth/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] })
+app.get("/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+
+app.get(
+  "/auth/google/callback",
+  passport.authenticate("google", { failureRedirect: "http://localhost:5173/login" }),
+  (req, res) => {
+    req.session.user = [req.user];
+    res.redirect("http://localhost:5173/dashboard");
+  }
 );
 
-app.get('/auth/google/callback', 
-    passport.authenticate('google', { 
-      failureRedirect: 'http://localhost:5173/login'  // Redirect to login on failure
-    }),
-    (req, res) => {
-      // Successful authentication
-      // Store user in session for compatibility with existing code
-      req.session.user = [req.user];
-      
-      // Redirect to dashboard after successful login
-      res.redirect('http://localhost:5173/dashboard');
-    }
-  );
-// Existing routes
-app.post("/signup", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const hash = await hashPassword(password);
-
-    // Insert into personalInfo
-    db.query("INSERT INTO personalInfo (email, password, oauth_provider) VALUES (?, ?, ?)", 
-      [email, hash, 'local'], 
-      (err, data) => {
-        if (err) return res.status(500).json("Error creating user");
-        
-        // Insert into schoolInfo
-        db.query("INSERT INTO schoolInfo (email) VALUE (?)",
-          [email],
-          (err) => {
-            if (err) return res.status(500).json("Error creating school info");
-            res.json(data);
-          }
-        );
-    });
-  } catch (error) {
-    res.status(500).json("Server error during signup");
-  }
-});
-
-// Update the UserData route to return data in the format expected by the frontend
 app.get("/UserData", checkAuth, (req, res) => {
-  // Handle both passport and session authentication
   const userData = req.session.user || (req.user ? [req.user] : null);
   
   if (!userData) {
     return res.json({ loggedIn: false });
   }
-  
-  // Format user data for frontend
+
   const formattedUser = {
     loggedIn: true,
     user: userData.map(user => ({
-      id: user.id || '',
+      id: user._id,
       name: user.name || '',
       email: user.email || '',
-      institution: user.institution || user.school || '',  // Adapt based on your database fields
+      institution: user.institution || '',
       avatar: user.avatar || '',
+      role: user.role || '' 
     }))
   };
-  
+
   res.json(formattedUser);
 });
 
-app.get("/MainContainer", checkAuth, (req, res) => {
+
+
+app.post("/signup", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const existingUser = await User.findOne({ email });
+    if (existingUser) return res.status(409).json("User already exists");
+
+    const hash = await hashPassword(password);
+    const newUser = await User.create({ email, password: hash, oauth_provider: "local" });
+    await SchoolInfo.create({ email });
+    res.json(newUser);
+  } catch (error) {
+    res.status(500).json("Server error during signup");
+  }
+});
+
+app.get("/UserData", checkAuth, (req, res) => {
   const userData = req.session.user || (req.user ? [req.user] : null);
-  res.json({ loggedIn: true, user: userData });
+  if (!userData) return res.json({ loggedIn: false });
+
+  const formattedUser = {
+    loggedIn: true,
+    user: userData.map((user) => ({
+      id: user._id,
+      name: user.name || "",
+      email: user.email || "",
+      institution: user.institution || "",
+      avatar: user.avatar || "",
+    })),
+  };
+  res.json(formattedUser);
 });
 
 app.post("/MainContainer", async (req, res) => {
   try {
     const { email, password } = req.body;
-    
-    db.query(
-      "SELECT * FROM personalInfo WHERE email = ? AND oauth_provider = 'local'",
-      [email],
-      async (err, data) => {
-        if (err) return res.status(500).json("Database error");
-        if (data.length === 0) return res.json("Fail");
-        
-        const isValid = await comparePassword(password, data[0].password);
-        if (isValid) {
-          // Store user data in session
-          req.session.user = data;
-          // Make sure to save the session before responding
-          req.session.save((err) => {
-            if (err) {
-              console.error("Session save error:", err);
-              return res.status(500).json("Session error");
-            }
-            res.json(data);
-          });
-        } else {
-          res.json("Fail");
-        }
-      }
-    );
+    const user = await User.findOne({ email, oauth_provider: "local" });
+    if (!user) return res.json("Fail");
+
+    const isValid = await comparePassword(password, user.password);
+    if (isValid) {
+      req.session.user = [user];
+      req.session.save((err) => {
+        if (err) return res.status(500).json("Session error");
+        res.json(user);
+      });
+    } else {
+      res.json("Fail");
+    }
   } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json("Server error during login");
+    res.status(500).json("Login error");
   }
 });
 
-// Project routes
-app.post("/api/projects/create", checkAuth, (req, res) => {
-  const {
-    title,
-    description,
-    researchGoals,
-    researchArea,
-    startDate,
-    endDate,
-    fundingAvailable,
-    fundingAmount,
-    collaboratorsNeeded,
-    collaboratorRoles,
-    institution,
-    contactEmail
-  } = req.body;
-
-  // Get user email from session or passport
-  const userEmail = req.user ? req.user.email : req.session.user[0].email;
-  
-  if (!userEmail) {
-    return res.json({ success: false, message: "User not authenticated" });
+app.post("/api/projects/create", checkAuth, async (req, res) => {
+  try {
+    const userEmail = req.user ? req.user.email : req.session.user[0].email;
+    const newProject = await Project.create({ ...req.body, creator_email: userEmail });
+    res.json({ success: true, projectId: newProject._id });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error creating project" });
   }
-
-  // Validate required fields
-  if (!title || !description || !researchGoals || !researchArea || !startDate || !endDate) {
-    return res.json({ 
-      success: false, 
-      message: "Missing required fields" 
-    });
-  }
-
-  // Insert into projects table
-  db.query(
-    `INSERT INTO projects (
-      creator_email, 
-      title, 
-      description, 
-      research_goals, 
-      research_area, 
-      start_date, 
-      end_date, 
-      funding_available, 
-      funding_amount, 
-      collaborators_needed, 
-      collaborator_roles, 
-      institution, 
-      contact_email
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      userEmail,
-      title,
-      description,
-      researchGoals,
-      researchArea,
-      startDate,
-      endDate,
-      fundingAvailable,
-      fundingAmount || null,
-      collaboratorsNeeded,
-      collaboratorRoles || null,
-      institution || null,
-      contactEmail || userEmail
-    ],
-    (err, result) => {
-      if (err) {
-        console.error("Project creation error:", err);
-        return res.json({ 
-          success: false, 
-          message: "Error creating project"
-        });
-      }
-      
-      return res.json({ 
-        success: true, 
-        message: "Project created successfully",
-        projectId: result.insertId
-      });
-    }
-  );
 });
 
-// Get user's projects
-app.get("/api/projects/user", checkAuth, (req, res) => {
-  const userEmail = req.user ? req.user.email : req.session.user[0].email;
-  
-  if (!userEmail) {
-    return res.json({ success: false, message: "User not authenticated" });
+app.get("/api/projects/user", checkAuth, async (req, res) => {
+  try {
+    const userEmail = req.user ? req.user.email : req.session.user[0].email;
+    const projects = await Project.find({ creator_email: userEmail }).sort({ created_at: -1 });
+    res.json({ success: true, projects });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching projects" });
   }
-
-  db.query(
-    "SELECT * FROM projects WHERE creator_email = ? ORDER BY created_at DESC",
-    [userEmail],
-    (err, results) => {
-      if (err) {
-        console.error("Error fetching projects:", err);
-        return res.json({ 
-          success: false, 
-          message: "Error fetching projects"
-        });
-      }
-      
-      return res.json({ 
-        success: true, 
-        projects: results
-      });
-    }
-  );
 });
 
-// Get project by ID
-app.get("/api/projects/:id", checkAuth, (req, res) => {
-  const projectId = req.params.id;
-  
-  db.query(
-    "SELECT * FROM projects WHERE id = ?",
-    [projectId],
-    (err, results) => {
-      if (err) {
-        console.error("Error fetching project:", err);
-        return res.json({ 
-          success: false, 
-          message: "Error fetching project details"
-        });
-      }
-      
-      if (results.length === 0) {
-        return res.json({
-          success: false,
-          message: "Project not found"
-        });
-      }
-      
-      return res.json({ 
-        success: true, 
-        project: results[0]
-      });
-    }
-  );
+app.get("/api/projects/:id", checkAuth, async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.json({ success: false, message: "Project not found" });
+    res.json({ success: true, project });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching project details" });
+  }
 });
 
-// Get all projects (for project discovery)
-app.get("/api/projects", checkAuth, (req, res) => {
-  // Optional filtering by research area
-  const { area } = req.query;
-  
-  let query = "SELECT * FROM projects";
-  let params = [];
-  
-  if (area) {
-    query += " WHERE research_area = ?";
-    params.push(area);
+app.get("/api/projects", checkAuth, async (req, res) => {
+  try {
+    const filter = req.query.area ? { research_area: req.query.area } : {};
+    const projects = await Project.find(filter).sort({ created_at: -1 });
+    res.json({ success: true, projects });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching projects" });
   }
-  
-  query += " ORDER BY created_at DESC";
-  
-  db.query(query, params, (err, results) => {
-    if (err) {
-      console.error("Error fetching projects:", err);
-      return res.json({ 
-        success: false, 
-        message: "Error fetching projects" 
-      });
-    }
-    
-    return res.json({ 
-      success: true, 
-      projects: results 
+});
+
+app.post("/logout", (req, res) => {
+  req.logout((err) => {
+    if (err) return res.status(500).json({ message: "Logout failed" });
+    req.session.destroy((err) => {
+      if (err) return res.status(500).json({ message: "Session destroy failed" });
+      res.clearCookie("connect.sid");
+      res.json({ message: "Logged out successfully" });
     });
   });
 });
 
-app.post('/logout', (req, res) => {
-    req.logout(function(err) {
-      if (err) { 
-        return res.status(500).json({ message: 'Could not log out, please try again' });
-      }
-      
-      req.session.destroy((err) => {
-        if (err) {
-          return res.status(500).json({ message: 'Could not log out, please try again' });
-        }
-        res.clearCookie('connect.sid');
-        return res.status(200).json({ message: 'Logged out successfully' });
-      });
-    });
-  });
-
-// Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

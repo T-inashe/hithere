@@ -2,7 +2,7 @@ import React, { useContext } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AuthProvider from './context/AuthProvider';
 import Login from './components/auth/Login';
-import Register from './components/auth/Register';
+import Register from './components/auth/Register2';
 import Dashboard from './components/dashboard/Dashboard';
 import AuthContext from './context/AuthContext';
 import ResearchCollabLanding from './pages/ResearchCollabLanding';
