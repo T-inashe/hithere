@@ -35,7 +35,7 @@ const logout = (req, res) => {
 
 const googleAuthCallback = (req, res) => {
   req.session.user = [req.user];
-  res.redirect("http://localhost:5173/dashboard");
+  res.redirect(`${process.env.FRONTEND_URL}/dashboard`);
 };
 
 module.exports = {
